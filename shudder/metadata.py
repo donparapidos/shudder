@@ -16,15 +16,25 @@
 
 """
 import requests
+import logging
+from systemd.journal import JournalHandler
+log = logging.getLogger('main')
+log.addHandler(JournalHandler())
+log.setLevel(logging.ERROR)
 
+termination_time = "http://169.254.169.254/latest/meta-data/spot/termination-time"
+instance_id = "http://169.254.169.254/latest/meta-data/instance-id"
 
 def poll_instance_metadata():
     """Check instance metadata for a scheduled termination"""
-    r = requests.get("http://169.254.169.254/latest/meta-data/spot/termination-time")
+    r = requests.get(termination_time)
     return r.status_code < 400
 
 def get_instance_id():
     """Check instance metadata for an instance id"""
-    r = requests.get("http://169.254.169.254/latest/meta-data/instance-id")
-    return r.text
+    try:
+      r = requests.get(instance_id)
+      return r.text
+    except:
+      log.error('Connection to ' + instance_id + ' failed.')
 
