@@ -29,10 +29,11 @@ logging.basicConfig(filename=LOG_FILE,format='%(asctime)s %(levelname)s:%(messag
 
 
 def receive_signal(signum, stack):
-    if signum in [1,2,3,15]:
-        print 'Caught signal %s, exiting.' %(str(signum))
-        sys.exit()
-    else:        print 'Caught signal %s, ignoring.' %(str(signum))
+    # if signum in [1,2,3,15]:
+    logging.info('Caught signal %s, exiting.' %(str(signum)))
+    sys.exit()
+    # else:
+    #     logging.info('Caught signal %s, ignoring.' %(str(signum)))
 
 if __name__ == '__main__':
     uncatchable = ['SIG_DFL','SIGSTOP','SIGKILL']
@@ -40,30 +41,41 @@ if __name__ == '__main__':
         if not i in uncatchable:
             signum = getattr(signal,i)
             signal.signal(signum,receive_signal)
-
+    logging.info('Creating sqs queue connection')
     sqs_connection, sqs_queue = queue.create_queue()
+    logging.info('Linking queue and sns')
     sns_connection, subscription_arn = queue.subscribe_sns(sqs_queue)
+    running = True
     while True:
       try:
         message = queue.poll_queue(sqs_connection, sqs_queue)
         if message or metadata.poll_instance_metadata():
             queue.clean_up_sns(sns_connection, subscription_arn, sqs_queue)
+            logging.info('Message:' + message)
             if 'endpoint' in CONFIG:
+                logging.info('Requesting ' + endpoint)
                 requests.get(CONFIG["endpoint"])
             if 'endpoints' in CONFIG:
                 for endpoint in CONFIG["endpoints"]:
+                    logging.info('Requesting ' + endpoint)
                     requests.get(endpoint)
             if 'commands' in CONFIG:
                 for command in CONFIG["commands"]:
-                    print 'Running command: %s' % command
+                    logging.info('Running command: %s' % command)
                     process = subprocess.Popen(command)
                     while process.poll() is None:
                         time.sleep(30)
                         """Send a heart beat to aws"""
-                        queue.record_lifecycle_action_heartbeat(message)
+                        try:
+                            logging.info('Recording lifecycle action')
+                            queue.record_lifecycle_action_heartbeat(message)
+                        except:
+                            logging.exception('Error sending hearbeat for' + endpoint)
+                            logging.error(message)
             """Send a complete lifecycle action"""
+            logging.info('Sending complete lifecycle action...')
             queue.complete_lifecycle_action(message)
-            sys.exit(0)
+            running = False
         time.sleep(5)
       except ConnectionError:
         logging.exception('Connection issue')
